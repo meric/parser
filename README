@@ -1,0 +1,10 @@
+Parser Generator
+================
+
+Example
+-------
+; Defines a function named `myparser` that parses strings like "c" "abc" 
+; "ababc" "abababababc", etc into a parse tree.
+(parser myparser
+	(sym (* "ab") "c"))
+
