@@ -56,7 +56,7 @@
           ('+ 'one-or-more-of)
           ('* 'zero-or-more-of)
           ('? 'optional-of)
-          ('[] 'sequence-of)
+          ('& 'sequence-of)
           (else (car expr)))
         (foreach replace (cdr expr))))))
 
@@ -95,7 +95,7 @@
 
   (macro sequence-of (*many)
     `(do ()
-      (PExpr exprWithName:"[]" 
+      (PExpr exprWithName:"&" 
              children:(quote ,(foreach (do (m) (__expect m)) *many)))))
 
   `(function ,name (__src)
@@ -155,8 +155,8 @@
   (a (| (PToken a "a"))) nil)
 (test any-of-regex ((parser __p (a (| "a" "b" /c/))) "c") 
   "(a (| (PToken /c/ \"c\")))" nil)
-(test any-of-sequence ((parser __p (a (| ([] "a" "b") "c"))) "ab") 
-  (a (| ([] (PToken a "a") (PToken b "b")))) nil)
+(test any-of-sequence ((parser __p (a (| (& "a" "b") "c"))) "ab") 
+  (a (| (& (PToken a "a") (PToken b "b")))) nil)
 (test zero-or-more-of ((parser __p (a (*))) "") 
   (a (*)) nil)
 (test zero-or-more-of ((parser __p (a (* "a" "b" "c"))) "abc") 
@@ -173,4 +173,3 @@
   (a (PToken b "b") (? (PToken a "a") (PToken a "a")) (PToken b "b")) nil)
 (test unicode ((parser __p (wsp /(\u0020|\u0009|\u000D|\u000A)*/)) "     ") 
   "(wsp (PToken /(\\u0020|\\u0009|\\u000D|\\u000A)*/ \"     \"))" nil)
-

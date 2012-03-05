@@ -6,5 +6,12 @@ Example
 ; Defines a function named `myparser` that parses strings like "c" "abc" 
 ; "ababc" "abababababc", etc into a parse tree.
 (parser myparser
-	(sym (* "ab") "c"))
+  (sym (* "ab") "c"))
+
+; Use parser like this:
+(puts ((myparser "abc") description))
+;-> (sym (* (PToken ab "ab")) (PToken c "c"))
+
+(puts ((myparser "abc") stringValue))
+;-> abc
 
