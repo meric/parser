@@ -45,6 +45,45 @@
                         range:`(0 ,(source length))) range))
     (if (and range (== 0 (car range))) (car (cdr range))))))
 
+
+(macro any-of (*any)
+  (set error (reduce + "expected any of" (foreach (do (f) (+ " " f)) *any)))
+  (function any (arg) 
+    (set result `(PExpr exprWithName:"|" 
+                        children:(list (expect ,(car arg)))))
+    (if (not (cdr arg)) result
+    (else `(try ,result (catch (o) ,(any (cdr arg)))))))
+  `(do () (try ,(any *any) (catch (object) (throw ,error)))))
+
+(macro zero-or-more-of (*many)
+  `(do () 
+      (set __children '())
+      (while ,(*many length)
+        (try ,@(foreach (do (m) 
+          `(set __children (append __children (list (expect ,m))))) *many)
+        (catch (o) (break))))
+      (PExpr exprWithName:"*" children:__children)))
+
+(macro one-or-more-of (*many)
+  `(do () 
+      (set __children (quote ,(foreach (do (m) (expect m)) *many)))
+      (while ,(*many length)
+        (try ,@(foreach (do (m) 
+          `(set __children (append __children (list (expect ,m))))) *many)
+        (catch (o) (break))))
+      (PExpr exprWithName:"+" children:__children)))
+
+(macro optional-of (*many)
+  `(do () 
+    (PExpr exprWithName:"?" children:
+        (try (list ,@(foreach (do (m) `(expect ,m)) *many))
+        (catch (o) '())))))
+
+(macro sequence-of (*many)
+  `(do ()
+    (PExpr exprWithName:"&" 
+           children:(quote ,(foreach (do (m) (expect m)) *many)))))
+
 ;See bottom of source file for usage example
 (macro parser (name *rules)
   (function replace (expr)
@@ -60,50 +99,21 @@
           (else (car expr)))
         (foreach replace (cdr expr))))))
 
-  (macro any-of (*any)
-    (set error (reduce + "expected any of" (foreach (do (f) (+ " " f)) *any)))
-    (function any (arg) 
-      (set result `(PExpr exprWithName:"|" 
-                          children:(list (__expect ,(car arg)))))
-      (if (not (cdr arg)) result
-      (else `(try ,result (catch (o) ,(any (cdr arg)))))))
-    `(do () (try ,(any *any) (catch (object) (throw ,error)))))
-
-  (macro zero-or-more-of (*many)
-    `(do () 
-        (set __children '())
-        (while ,(*many length)
-          (try ,@(foreach (do (m) 
-            `(set __children (append __children (list (__expect ,m))))) *many)
-          (catch (o) (break))))
-        (PExpr exprWithName:"*" children:__children)))
- 
-  (macro one-or-more-of (*many)
-    `(do () 
-        (set __children (quote ,(foreach (do (m) (__expect m)) *many)))
-        (while ,(*many length)
-          (try ,@(foreach (do (m) 
-            `(set __children (append __children (list (__expect ,m))))) *many)
-          (catch (o) (break))))
-        (PExpr exprWithName:"+" children:__children)))
-
-  (macro optional-of (*many)
-    `(do () 
-      (PExpr exprWithName:"?" children:
-          (quote ,(try (foreach (do (m) (__expect m)) *many)
-                  (catch (o) '()))))))
-
-  (macro sequence-of (*many)
-    `(do ()
-      (PExpr exprWithName:"&" 
-             children:(quote ,(foreach (do (m) (__expect m)) *many)))))
-
-  `(function ,name (__src)
+;;TODO fix exceptions
+  `(function ,name (*args) ; (function ,name (__src *start))
+    (set __src nil)
+    (set __start nil)
+    (if (== (*args length) 1)
+      (set __src (car *args))
+    (else if (== (* args length) 2)
+      (set __src (car (cdr *args)))
+      (set __start (car *args)))
+    (else throw "invalid number of arguments"))
     (set __index 0)
     (function __advance (i) 
       (set __src (__src substringFromIndex:i))
       (set __index (+ __index i)))
-    (function __expect (str)
+    (function expect (str)
       (if (or ((send str class) isSubclassOfClass:NSString)
               ((send str class) isSubclassOfClass:NSRegularExpression))
         (set __name (str description))
@@ -122,7 +132,7 @@
         `(function ,(car __rule) ()
             (PExpr exprWithName:,(+ (car __rule)) 
                    children:(list ,@(foreach (do (__f) 
-                                                `(__expect ,(replace __f))) 
+                                                `(expect ,(replace __f))) 
                                              (cdr __rule)))))) *rules)
     (set tree (,(car (car *rules))))
     (if (__src length) (throw (+ "unexpected remainder: " __src)))
@@ -173,3 +183,56 @@
   (a (PToken b "b") (? (PToken a "a") (PToken a "a")) (PToken b "b")) nil)
 (test unicode ((parser __p (wsp /(\u0020|\u0009|\u000D|\u000A)*/)) "     ") 
   "(wsp (PToken /(\\u0020|\\u0009|\\u000D|\\u000A)*/ \"     \"))" nil)
+
+(macro svg-parser (rule)
+  `(parser ,((+ "svg-" rule) symbolValue)
+    (value ,rule)
+    (angle number (? (| /deg/i /grad/i /rad/i)))
+    (color (| /[#][0-9a-f][0-9a-f][0-9a-f]([0-9a-f][0-9a-f][0-9a-f])?/i
+              ([] "rgb(" wsp* integer comma integer comma integer wsp* ")")
+            ))
+    (comma wsp* "," wsp*)
+    (comma-wsp (| ([] wsp+ (? ",") wsp*) ([] "," wsp*)))
+    (wsp* /(\u0020|\u0009|\u000D|\u000A)*/)
+    (wsp+ /(\u0020|\u0009|\u000D|\u000A)+/)
+    (coordinate length)
+    (icccolor "icc-color(" name (+ comma-wsp number) ")")
+    (name /[^,()\u0020\u0009\u000D#\u000A]/) ;any char except ",", "(", ")" or wsp
+    (integer /[+-]?[0-9]+/)
+    (length number (? (| /em/i /ex/i /px/i /in/i /cm/i /mm/i /pt/i /pc/i)))
+    (list-of-strings string | string wsp+ list-of-strings)
+    (string /[^\u0009\u000A\u000D\u0020]*/)
+    (number (| /[+-]?[0-9]*[.][0-9]+/ integer))
+    (number-optional-number (| number ([] number comma-wsp number)))
+    (percentage number "%")
+    (time number (| "ms" "s"))))
+
+(svg-parser number)
+(svg-parser length)
+
+(try
+  (puts (svg-number "12.0"))
+(catch (object) 
+  (puts object)))
+
+(set i 0)
+(while (< i 100)
+  (set i (+ i 1))
+  (try
+    (svg-length "12px")
+  (catch (object) 
+    (puts object))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
